@@ -12,7 +12,6 @@ You must strictly follow this JSON output format. The entire output must be a si
   "extracted_snippets": [
     {
       "context": "A single, specific, and atomic insight, definition, argument, or event from the text. This is a database entry, so it should NOT have Markdown formatting.",
-      "note_type": "Lit Note",
       "entities": 
 [
         "Entity Name 1 (Person, Concept, Place, etc.)",

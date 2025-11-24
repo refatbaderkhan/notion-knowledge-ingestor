@@ -1,4 +1,3 @@
-# config.example.py
 # INSTRUCTIONS:
 # 1. Rename this file to 'config.py'
 # 2. Paste your actual Notion Database IDs below
