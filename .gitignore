@@ -3,3 +3,4 @@
 *.log
 .venv/
 config.py
+output_data/

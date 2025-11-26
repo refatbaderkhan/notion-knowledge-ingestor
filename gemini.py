@@ -1,9 +1,12 @@
+import logging
 import os
 from typing import List, Optional
 
 from dotenv import load_dotenv
 from google import genai
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class EventDate(BaseModel):
@@ -34,13 +37,25 @@ class SummaryResponse(BaseModel):
 load_dotenv()
 
 
-class GeminiSummarization:
+class GeminiProcessor:
     def __init__(self):
         self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        logger.info("GeminiProcessor initialized.")
 
     def _load_prompt(self, prompt_path):
-        with open(prompt_path, "r") as f:
-            return f.read()
+        try:
+            with open(prompt_path, "r") as f:
+                content = f.read()
+                logger.info(
+                    f"Loaded system instruction from {prompt_path}."
+                )  # New log entry
+                return content
+        except FileNotFoundError:
+            logger.critical(f"Prompt file not found at {prompt_path}.")
+            raise
+        except Exception as e:
+            logger.error(f"Error loading prompt: {e}", exc_info=True)
+            raise
 
     def _format_video_content(self, video_data):
         title = video_data.get("title", "Unknown Title")
@@ -55,39 +70,33 @@ class GeminiSummarization:
         )
 
     def summarize_video(self, prompt_path, video_data):
+        logger.info("Starting Gemini summarization process.")
         system_instruction = self._load_prompt(prompt_path)
         full_content_text = self._format_video_content(video_data)
 
         final_prompt = f"{system_instruction}\n\nDATA TO PROCESS:\n{full_content_text}"
 
-        response = self.client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=final_prompt,
-            config={
-                "response_mime_type": "application/json",
-                "response_json_schema": SummaryResponse.model_json_schema(),
-            },
-        )
-
         try:
+            response = self.client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=final_prompt,
+                config={
+                    "response_mime_type": "application/json",
+                    "response_json_schema": SummaryResponse.model_json_schema(),
+                },
+            )
+            logger.info("Received response from Gemini API.")
             structured_data = SummaryResponse.model_validate_json(response.text)
+            logger.info("Gemini response validated against Pydantic schema.")
             return structured_data.model_dump()
-        except Exception as e:
-            print(f"Error validating response: {e}")
+
+        except genai.errors.APIError as e:
+            logger.error(f"Gemini API Error: {e}", exc_info=True)
             return None
 
-
-# if __name__ == "__main__":
-#     summarizer = GeminiSummarization()
-#     json_file_path = "Dubq7s-5zLU.json"
-
-#     with open(json_file_path, "r", encoding="utf-8") as f:
-#         video_data = json.load(f)
-
-#     result = summarizer.summarize_video("prompt.txt", video_data)
-
-#     if result:
-#         with open("result.json", "w", encoding="utf-8") as json_file:
-#             json.dump(result, json_file, indent=4, ensure_ascii=False)
-#     else:
-#         print("Failed to generate or validate summary.")
+        except Exception as e:
+            # Replaced print() with logger.error()
+            logger.error(
+                f"Error validating or processing Gemini response: {e}", exc_info=True
+            )
+            return None

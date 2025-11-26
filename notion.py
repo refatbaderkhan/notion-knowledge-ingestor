@@ -9,10 +9,10 @@ from notion_client.errors import APIResponseError
 logger = logging.getLogger(__name__)
 
 
-class NotionScript:
+class NotionIngester:
     def __init__(self, api_key, entities_db_id, media_db_id, snippet_db_id):
         if not api_key:
-            raise ValueError("API Key is required to initialize NotionScript")
+            raise ValueError("API Key is required to initialize NotionIngester")
 
         try:
             self.notion_client = Client(auth=api_key)
@@ -175,7 +175,7 @@ class NotionScript:
             media_page_id = response["id"]
             logger.info("CREATED MEDIA: %s | ID: %s", data["title"], media_page_id)
 
-            for snippet in data["extracted_snippets"]:
+            for snippet in reversed(data["extracted_snippets"]):
                 self.create_snippet(snippet, media_page_id)
 
             return media_page_id
@@ -198,6 +198,7 @@ class NotionScript:
             linked_entity = self.get_or_create_entity(entity_name)
             if linked_entity:
                 entities.append({"id": linked_entity})
+
         properties = {
             "Context": {"title": [{"text": {"content": snippet["context"]}}]},
             "Source": {"relation": [{"id": media_source}]},
@@ -206,6 +207,7 @@ class NotionScript:
             "Status": {"select": {"name": "Inbox"}},
             "Adding Date": {"date": {"start": today_iso}},
         }
+
         if snippet["event_date"].get("human_readable"):
             properties["Event Date"] = {
                 "rich_text": [
@@ -215,14 +217,27 @@ class NotionScript:
                     }
                 ]
             }
-        if snippet["event_date"].get("date_start_iso"):
-            properties["Start Date"] = {
-                "date": {"start": snippet["event_date"]["date_start_iso"]}
-            }
-        if snippet["event_date"].get("date_end_iso"):
-            properties["End Date"] = {
-                "date": {"start": snippet["event_date"]["date_end_iso"]}
-            }
+
+        start_date_iso = snippet["event_date"].get("date_start_iso")
+        if start_date_iso:
+            try:
+                datetime.strptime(start_date_iso, "%Y-%m-%d")
+                properties["Start Date"] = {"date": {"start": start_date_iso}}
+            except ValueError:
+                logger.warning(
+                    f"Skipping Start Date property. Invalid ISO format found: '{start_date_iso}' for snippet: {snippet['context'][:50]}..."
+                )
+
+        end_date_iso = snippet["event_date"].get("date_end_iso")
+        if end_date_iso:
+            try:
+                datetime.strptime(end_date_iso, "%Y-%m-%d")
+                properties["End Date"] = {"date": {"start": end_date_iso}}
+            except ValueError:
+                logger.warning(
+                    f"Skipping End Date property. Invalid ISO format found: '{end_date_iso}' for snippet: {snippet['context'][:50]}..."
+                )
+
         try:
             response = self.notion_client.pages.create(
                 **{
@@ -239,7 +254,47 @@ class NotionScript:
                 media_source,
             )
             return response
+
         except APIResponseError as e:
+            error_message = e.response.json().get("message", "")
+
+            if (
+                "Start Date" in error_message
+                or "End Date" in error_message
+                or e.status_code == 400
+            ):
+                logger.warning(
+                    "Date validation failed for snippet: %s. Attempting to retry without date properties.",
+                    snippet["context"][:50],
+                )
+
+                retry_properties = properties.copy()
+                retry_properties.pop("Start Date", None)
+                retry_properties.pop("End Date", None)
+
+                try:
+                    retry_response = self.notion_client.pages.create(
+                        **{
+                            "parent": {
+                                "type": "data_source_id",
+                                "data_source_id": self.snippet_db_id,
+                            },
+                            "properties": retry_properties,
+                        }
+                    )
+                    logger.info(
+                        "RETRY SUCCESS: Snippet created without problematic dates: %s",
+                        snippet["context"][:50],
+                    )
+                    return retry_response
+                except APIResponseError as retry_e:
+                    logger.error(
+                        "RETRY FAILED: API error creating snippet (no dates): %s | Context: %s",
+                        retry_e.status_code,
+                        snippet["context"][:50],
+                    )
+                    return None
+
             logger.error(
                 "API ERROR creating snippet: %s | Context: %s",
                 e.status_code,

@@ -1,5 +1,4 @@
 import logging
-import sys
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -13,13 +12,15 @@ from youtube_transcript_api.formatters import TextFormatter
 logger = logging.getLogger(__name__)
 
 
-class YoutubeVideoExtractor:
+class YoutubeExtractor:
     def __init__(self, api_key):
         if not api_key:
+            logger.error("API Key is missing for YouTubeExtractor initialization.")
             raise ValueError("API Key is required to initialize YouTubeExtractor")
         self.youtube_client = build("youtube", "v3", developerKey=api_key)
         self.formatter = TextFormatter()
         self.transcript_client = YouTubeTranscriptApi()
+        logger.info("YoutubeExtractor initialized.")
 
     def _get_metadata(self, youtube_id):
         try:
@@ -33,6 +34,7 @@ class YoutubeVideoExtractor:
                 logger.warning(f"Video ID {youtube_id} returned no results.")
                 return {}
             snippet = items[0].get("snippet", {})
+            logger.info(f"Successfully fetched metadata for {youtube_id}.")
             target_keys = ["title", "publishedAt", "description", "channelTitle"]
             return {key: snippet.get(key) for key in target_keys if snippet.get(key)}
         except HttpError as e:
@@ -46,6 +48,7 @@ class YoutubeVideoExtractor:
         try:
             transcript_list = self.transcript_client.list(youtube_id)
             transcript = transcript_list.find_transcript(["en", "ar"]).fetch()
+            logger.info(f"Successfully fetched transcript for {youtube_id}.")
             return self.formatter.format_transcript(transcript).splitlines()
 
         except (TranscriptsDisabled, NoTranscriptFound):
@@ -66,40 +69,3 @@ class YoutubeVideoExtractor:
         data["transcript"] = self._get_transcript(youtube_id)
         logger.info(f"Successfully extracted data for {youtube_id}")
         return data
-
-
-def setup_logging_config():
-    LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
-
-    file_handler = logging.FileHandler("myapp.log")
-    file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
-    root_logger.addHandler(file_handler)
-
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(logging.Formatter(LOG_FORMAT))
-    root_logger.addHandler(console_handler)
-
-
-# if __name__ == "__main__":
-#     load_dotenv()
-
-#     setup_logging_config()
-
-#     api_key = os.getenv("GOOGLE_API")
-#     if not api_key:
-#         logger.critical("No GOOGLE_API key found in environment variables.")
-#         sys.exit(1)
-
-#     try:
-#         extractor = YoutubeVideoExtractor(api_key)
-
-#         test_id = "Dubq7s-5zLU"
-#         result = extractor.extract_data(test_id)
-
-#         pprint.pp(result)
-
-#     except Exception as e:
-#         logger.critical(f"Application crashed: {e}")
