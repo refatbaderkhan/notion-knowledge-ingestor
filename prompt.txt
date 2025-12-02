@@ -33,7 +33,7 @@
             "title": "Entities",
             "description": "List all relevant Proper Nouns and Domain-Specific Concepts.",
             "rules": [
-            "**Rule 1 (Wikipedia Authority):** For all entities (People, Places, Concepts), strictly use the **primary article title** found on the English Wikipedia as the definitive, formal name.",
+            "**Rule 1 (Wikipedia Authority):** For all entities (People, Places, Concepts), strictly use the **primary article title** found on the English Wikipedia as the definitive, formal name. even when it's not exactly the same name written in the transcript",
             "**Rule 2 (Formal & Unambiguous Naming):** Use your academic knowledge to provide the most formal, unambiguous name possible (e.g., 'The 43rd President' becomes '**George W. Bush**').",
             "**Rule 3 (Consistency):** Be **strictly consistent** with the entity names across all snippets (e.g., if you use 'Thomas Jefferson' once, use it every time, not 'Jefferson').",
             "**Rule 4 (STRICTLY FORBIDDEN Entity Types):** **STRICTLY FORBIDDEN** to use generic common nouns, pronouns, or unspecific **abstract concepts** (e.g., 'Desire,' 'existence,' 'science,' 'Love,' 'City,' 'King' unless specific). Entities must be proper nouns or specialized technical terms."

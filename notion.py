@@ -64,7 +64,7 @@ class NotionIngester:
 
             if response["results"]:
                 entity_id = response["results"][0]["id"]
-                logger.info("CACHE POPULATED: Found existing entity ID: %s", entity_id)
+                logger.info("Found existing entity ID: %s", entity_id)
                 return entity_id
 
             logger.info("Entity not found. creating: %s", name)
@@ -103,7 +103,6 @@ class NotionIngester:
             return None
 
         try:
-            # --- FIX 5: Use self.client and self.media_db ---
             response = self.client.pages.create(
                 **{
                     "parent": {
@@ -147,8 +146,32 @@ class NotionIngester:
             if linked_entity:
                 entities.append({"id": linked_entity})
 
+        full_context = snippet["context"]
+        title_content = full_context
+        children_blocks = []
+
+        if len(full_context) > 1900:
+            title_content = full_context[:1900] + "... (truncated, see body)"
+
+            chunk_size = 1900
+            text_chunks = [
+                full_context[i : i + chunk_size]
+                for i in range(0, len(full_context), chunk_size)
+            ]
+
+            for chunk in text_chunks:
+                children_blocks.append(
+                    {
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"type": "text", "text": {"content": chunk}}]
+                        },
+                    }
+                )
+
         properties = {
-            "Context": {"title": [{"text": {"content": snippet["context"]}}]},
+            "Context": {"title": [{"text": {"content": title_content}}]},
             "Source": {"relation": [{"id": media_id}]},
             "Entities": {"relation": entities},
             "Note Type": {"select": {"name": "Automated Note"}},
@@ -176,24 +199,31 @@ class NotionIngester:
                         f"Skipping {notion_column}: Invalid format '{val}' in snippet."
                     )
 
+        create_kwargs = {
+            "parent": {"data_source_id": self.snippet_db, "type": "data_source_id"},
+            "properties": properties,
+        }
+
+        if children_blocks:
+            create_kwargs["children"] = children_blocks
+
         try:
-            return self.client.pages.create(
-                parent={"data_source_id": self.snippet_db, "type": "data_source_id"},
-                properties=properties,
-            )
+            return self.client.pages.create(**create_kwargs)
+
         except APIResponseError as e:
-            if e.status_code == 400:
-                logger.warning("Date error detected. Retrying without dates.")
+            if e.status == 400:
+                logger.warning(
+                    f"400 Error detected ({e.message}). Retrying without dates."
+                )
                 properties.pop("Start Date", None)
                 properties.pop("End Date", None)
+                create_kwargs["properties"] = properties
+
                 try:
-                    return self.client.pages.create(
-                        parent={
-                            "data_source_id": self.snippet_db,
-                            "type": "data_source_id",
-                        },
-                        properties=properties,
-                    )
-                except Exception:
+                    return self.client.pages.create(**create_kwargs)
+                except Exception as retry_e:
+                    logger.error(f"Retry failed: {retry_e}")
                     return None
+
+            logger.error(f"Failed to create snippet: {e}")
             return None
